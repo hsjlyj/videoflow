@@ -2,7 +2,7 @@ import express from "express";
 import u from "@/utils";
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
-import { success } from "@/lib/responseFormat";
+import { success, error } from "@/lib/responseFormat";
 import { validateFields } from "@/middleware/middleware";
 import { ReferenceList } from "@/utils/ai";
 const router = express.Router();
@@ -79,6 +79,20 @@ export default router.post(
           }),
         );
 
+        const missingReferences = images
+          .map((item, index) => ({ item, upload: uploadData[index] }))
+          .filter(({ item }) => !item?.path)
+          .map(({ upload }) => ({ id: upload.id, sources: upload.sources }));
+        if (missingReferences.length > 0) {
+          await u.db("o_videoTrack").where("id", trackId).update({
+            state: "生成失败",
+            reason: `存在未生成成功的参考图，请先补生成分镜图后再生成视频：${missingReferences
+              .map((item) => `${item.sources}:${item.id}`)
+              .join(", ")}`,
+          });
+          return { trackId, videoId: null, skip: true, missingReferences, prompt, duration, images: [] as any[], videoPath: "" };
+        }
+
         const videoPath = `/${projectId}/video/${uuidv4()}.mp4`;
         const [videoId] = await u.db("o_video").insert({
           filePath: videoPath,
@@ -89,9 +103,18 @@ export default router.post(
           videoTrackId: trackId,
         });
 
-        return { videoId, videoPath, prompt, duration, images, trackId };
+        return { videoId, videoPath, prompt, duration, images, trackId, skip: false, missingReferences: [] as { id: number; sources: string }[] };
       }),
     );
+
+    const invalidTasks = tasks.filter((t) => t.skip);
+    if (invalidTasks.length > 0) {
+      return res.status(400).send(
+        error("存在未生成成功的参考图，请先补生成分镜图后再生成视频", {
+          invalidTracks: invalidTasks.map((t) => ({ trackId: t.trackId, missingReferences: t.missingReferences })),
+        }),
+      );
+    }
 
     res.status(200).send(success(tasks.map((t) => ({ videoId: t.videoId, trackId: t.trackId }))));
     for (const { videoId, videoPath, prompt, duration, images } of tasks) {

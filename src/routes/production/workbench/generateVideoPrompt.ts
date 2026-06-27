@@ -171,24 +171,69 @@ export default router.post(
           `;
 
     try {
-      const { text } = await u.Ai.Text("universalAi").invoke({
-        system: videoPromptGeneration,
-        messages: [
-          {
-            role: "assistant",
-            content: `${visualManual}`,
-          },
-          {
-            role: "user",
-            content: content,
-          },
-        ],
-      });
+      const buildLocalFallbackPrompt = () => {
+        const compactStoryboard = storyboard
+          .map((item, index) => `分镜${index + 1}：${String(item.videoDesc ?? "").replace(/\s+/g, " ").trim()}`)
+          .filter(Boolean)
+          .join("；");
+        const styleSummaryMatch = String(visualManual ?? "").match(/古风写实摄影[^|\n]{0,80}/);
+        const styleSummary = styleSummaryMatch?.[0]?.trim() || "古风写实摄影，电影风格，强对比度，极致细节。";
+        return [
+          styleSummary,
+          `视频模型：${modelData}。`,
+          "请将以下内容整合为一段可直接用于视频生成的连续镜头提示词：",
+          compactStoryboard,
+        ].join(" ");
+      };
+      const buildValidPrompt = async (systemPrompt: string, userContent: string) => {
+        const { text } = await u.Ai.Text("universalAi").invoke({
+          system: systemPrompt,
+          messages: [
+            {
+              role: "assistant",
+              content: `${visualManual}`,
+            },
+            {
+              role: "user",
+              content: userContent,
+            },
+          ],
+        });
+        const normalizedText = (text ?? "").trim();
+        const invalidPrompt =
+          !normalizedText ||
+          normalizedText.includes("video_placeholder") ||
+          normalizedText.includes("升级订阅") ||
+          normalizedText.includes("我很乐意提供帮助");
+        if (invalidPrompt) {
+          throw new Error("视频提示词生成返回无效占位内容");
+        }
+        return normalizedText;
+      };
+
+      let normalizedText = "";
+      try {
+        normalizedText = await buildValidPrompt(videoPromptGeneration ?? "", content);
+      } catch {
+        try {
+          const fallbackSystem = [
+            "你是视频提示词生成器。",
+            "只输出最终视频提示词，不要解释，不要分隔线，不要 markdown 代码块。",
+            "禁止输出 video_placeholder、订阅升级提示、寒暄或拒答话术。",
+            `视频模型：${modelData}。生成内容必须适配当前模型。`,
+          ].join("\n");
+          const fallbackContent = [`模式：${mode ?? ""}`, "请基于以下素材整合出一段可直接用于视频生成的视频提示词：", content].join("\n\n");
+          normalizedText = await buildValidPrompt(fallbackSystem, fallbackContent);
+        } catch {
+          normalizedText = buildLocalFallbackPrompt();
+        }
+      }
       await u.db("o_videoTrack").where({ id: trackId }).update({
         state: "已完成",
-        prompt: text,
+        prompt: normalizedText,
+        reason: null,
       });
-      res.status(200).send(success(text));
+      res.status(200).send(success(normalizedText));
     } catch (e) {
       await u
         .db("o_videoTrack")

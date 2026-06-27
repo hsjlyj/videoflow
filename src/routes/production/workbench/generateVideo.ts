@@ -2,7 +2,7 @@ import express from "express";
 import u from "@/utils";
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
-import { success } from "@/lib/responseFormat";
+import { success, error } from "@/lib/responseFormat";
 import { validateFields } from "@/middleware/middleware";
 import { ReferenceList } from "@/utils/ai";
 const router = express.Router();
@@ -68,6 +68,24 @@ export default router.post(
       }),
     );
     //把images里面的图片转成base64格式
+    const missingReferences = images
+      .map((item, index) => ({ item, upload: uploadData[index] }))
+      .filter(({ item }) => !item?.path)
+      .map(({ upload }) => ({ id: upload.id, sources: upload.sources }));
+    if (missingReferences.length > 0) {
+      await u.db("o_videoTrack").where("id", trackId).update({
+        state: "生成失败",
+        reason: `存在未生成成功的参考图，请先补生成分镜图后再生成视频：${missingReferences
+          .map((item) => `${item.sources}:${item.id}`)
+          .join(", ")}`,
+      });
+      return res.status(400).send(
+        error(
+          `存在未生成成功的参考图，请先补生成分镜图后再生成视频：${missingReferences.map((item) => `${item.sources}:${item.id}`).join(", ")}`,
+          { trackId, missingReferences },
+        ),
+      );
+    }
     const base64 = await Promise.all(
       images.map(async (item) => {
         if (!item) return null;
