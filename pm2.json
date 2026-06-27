@@ -1,0 +1,11 @@
+{
+  "name": "toonflow-app",
+  "script": "data/serve/app.js",
+  "instances": "max",
+  "exec_mode": "cluster",
+  "env": {
+    "NODE_ENV": "prod",
+    "PORT": 10588,
+    "OSSURL": "http://127.0.0.1:10588/"
+  }
+}

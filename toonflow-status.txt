@@ -1,0 +1,23 @@
+ M data/serve/app.js
+ M data/vendor/grsai.ts
+ M data/vendor/null.ts
+ M data/vendor/volcengine.ts
+ M data/vendor/volcengineSd2.ts
+ M data/web/index.html
+ M src/routes/assetsGenerate/batchGenerateImageAssets.ts
+ M src/routes/assetsGenerate/generateAssets.ts
+ M src/routes/production/storyboard/batchGenerateImage.ts
+ M src/routes/setting/vendorConfig/modelTest/imageTest.ts
+ M src/utils.ts
+ M src/utils/vm.ts
+ M yarn.lock
+?? data/vendor/bull.ts
+?? data/web/.well-known/
+?? data/web/css.worker-BvV5MPou.js.gz
+?? data/web/favicon.ico.gz
+?? data/web/html.worker-BLJhxQJQ.js.gz
+?? data/web/index.html.gz
+?? data/web/json.worker-usMZ-FED.js.gz
+?? data/web/ts.worker-DGHjMaqB.js.gz
+?? pm2.json
+?? storyboard48-debug.ts
