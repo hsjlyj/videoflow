@@ -114,7 +114,7 @@ export default router.post("/", validateFields(requestSchema), async (req, res) 
       const describe = `生成${cfg.label}图，名称：${item.name}，提示词：${item.prompt}`;
       const relatedObjects = { id: item.id, projectId, type: cfg.label };
       const referenceList = (Array.isArray(item.base64List) && item.base64List.length ? item.base64List : item.base64 ? [item.base64] : []).map(
-        (itemBase64: string) => ({ base64: itemBase64, type: "image" }),
+        (itemBase64: string) => ({ base64: itemBase64, type: "image" as const }),
       );
       try {
         const aiImage = u.Ai.Image(model);

@@ -30,7 +30,7 @@ export default router.post(
         : imageBase64
           ? [imageBase64]
           : []
-      ).map((base64: string) => ({ type: "image", base64 }));
+      ).map((base64: string) => ({ type: "image" as const, base64 }));
 
       const reqFn = await u.Ai.Image(`${id}:${modelName}`).run({
         prompt: prompt,

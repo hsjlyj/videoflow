@@ -98,7 +98,7 @@ export default router.post("/", validateFields(requestSchema), async (req, res) 
   const describe = `生成${cfg.label}图，名称：${name}，提示词：${prompt}`;
   const relatedObjects = { id, projectId, type: cfg.label };
   const referenceList = (Array.isArray(base64List) && base64List.length ? base64List : base64 ? [base64] : []).map((itemBase64: string) => ({
-    type: "image",
+    type: "image" as const,
     base64: itemBase64,
   }));
 
