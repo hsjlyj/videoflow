@@ -273,10 +273,10 @@ async function buildSceneMontage(images: string[]) {
         top: margin,
       })),
     )
-    .resize({ width: 1600, withoutEnlargement: true })
     .jpeg({ quality: 88 })
     .toBuffer();
-  return await u.zipImage(toDataUrl(merged), 2 * 1024 * 1024);
+  const resizedMerged = await sharp(merged).resize({ width: 1600, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer();
+  return await u.zipImage(toDataUrl(resizedMerged), 2 * 1024 * 1024);
 }
 
 async function buildToolMontage(images: string[]) {

@@ -171,49 +171,58 @@ const imageRequest = async (config: ImageConfig, model: ImageModel): Promise<str
   const baseUrl = vendor.inputValues.baseUrl.replace(/\/$/, "");
 
   if (config.referenceList && config.referenceList.length > 0) {
-    const body = {
-      model: model.modelName,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: `${config.prompt}\n\n严格参考所有参考图生成，不要忽略参考图，不要自由发挥。`,
-            },
-            ...config.referenceList.map((item) => ({
-              type: "image_url",
-              image_url: {
-                url: item.base64,
-              },
-            })),
-          ],
-        },
-      ],
-    };
-
+    const candidateModels = [model.modelName, "gpt-image-2-b"].filter((name, index, arr) => name && arr.indexOf(name) === index);
     let response: any;
     let lastError: any;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        response = await axios.post(`${baseUrl}/chat/completions`, body, {
-          headers,
-          timeout: 240000,
-        });
-        break;
-      } catch (e: any) {
-        lastError = e;
-        const status = e?.response?.status;
-        const message = String(e?.message || "");
-        const retryable = status === 524 || status === 502 || message.includes("timeout") || message.includes("ECONNRESET");
-        if (!retryable || attempt === 1) throw e;
+    for (const candidateModel of candidateModels) {
+      const body = {
+        model: candidateModel,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `${config.prompt}\n\n严格参考所有参考图生成，不要忽略参考图，不要自由发挥。`,
+              },
+              ...config.referenceList.map((item) => ({
+                type: "image_url",
+                image_url: {
+                  url: item.base64,
+                },
+              })),
+            ],
+          },
+        ],
+      };
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          response = await axios.post(`${baseUrl}/chat/completions`, body, {
+            headers,
+            timeout: 240000,
+          });
+          break;
+        } catch (e: any) {
+          lastError = e;
+          const status = e?.response?.status;
+          const message = String(e?.message || "");
+          const retryable = status === 524 || status === 502 || status === 503 || message.includes("timeout") || message.includes("ECONNRESET");
+          if (!retryable || attempt === 1) {
+            response = null;
+            break;
+          }
+        }
+      }
+      if (response) {
+        const content = response?.data?.choices?.[0]?.message?.content || "";
+        const match = typeof content === "string" ? content.match(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/) : null;
+        if (match) return match[0];
+        lastError = new Error("多参考图图片接口未返回可解析的 base64 图片");
+        response = null;
       }
     }
-    if (!response) throw lastError || new Error("多参考图图片接口请求失败");
-    const content = response?.data?.choices?.[0]?.message?.content || "";
-    const match = typeof content === "string" ? content.match(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/) : null;
-    if (match) return match[0];
-    throw new Error("多参考图图片接口未返回可解析的 base64 图片");
+    throw lastError || new Error("多参考图图片接口请求失败");
   }
 
   const response = await axios.post(
