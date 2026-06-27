@@ -280,10 +280,20 @@ const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<str
     return await urlToBase64(result.data!);
   };
   const createWithNewApi = async () => {
+    const normalizedResolution = (() => {
+      const raw = String(config.resolution || "").toLowerCase();
+      if (raw === "480p" || raw === "sd") return "480p";
+      if (raw === "720p" || raw === "hd") return "720p";
+      if (raw === "1080p") return "720p";
+      return "720p";
+    })();
+    metadata.resolution = normalizedResolution;
     const body: Record<string, any> = {
       model: model.modelName,
       prompt: config.prompt,
       duration: config.duration,
+      resolution: normalizedResolution,
+      aspect_ratio: config.aspectRatio,
       width: config.aspectRatio === "9:16" ? 720 : 1280,
       height: config.aspectRatio === "9:16" ? 1280 : 720,
       image: imageRefs[0],
@@ -315,13 +325,17 @@ const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<str
         throw new Error(`查询视频任务状态失败: ${errorText}`);
       }
       const queryData = await queryResponse.json();
-      const status = queryData?.status;
-      if (status === "succeeded" || status === "completed") {
-        if (queryData?.url) return { completed: true, data: queryData.url };
+      const payload = queryData?.data || queryData;
+      const nested = payload?.data || {};
+      const status = payload?.status || nested?.status;
+      const videoUrl = payload?.url || payload?.result_url || payload?.video_url || nested?.url || nested?.result_url || nested?.video_url;
+      const errorMessage = payload?.error?.message || payload?.message || payload?.fail_reason || nested?.error?.message || queryData?.message || "视频生成失败";
+      if (status === "succeeded" || status === "completed" || status === "SUCCESS") {
+        if (videoUrl) return { completed: true, data: videoUrl };
         return { completed: true, error: "任务成功但未返回视频URL" };
       }
-      if (status === "failed" || status === "cancelled" || status === "expired") {
-        return { completed: true, error: queryData?.error?.message || queryData?.message || "视频生成失败" };
+      if (status === "failed" || status === "cancelled" || status === "expired" || status === "FAILURE") {
+        return { completed: true, error: errorMessage };
       }
       return { completed: false };
     }, 10000, 600000);
@@ -329,6 +343,9 @@ const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<str
     return await urlToBase64(result.data!);
   };
   try {
+    if (model.modelName.toLowerCase().includes("grok-imagine-video")) {
+      return await createWithNewApi();
+    }
     return await createWithOpenAIVideos();
   } catch (e: any) {
     const message = String(e?.message || e || "");
