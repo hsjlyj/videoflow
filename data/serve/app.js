@@ -240925,8 +240925,9 @@ async function buildSceneMontage(images) {
       left: margin + index * (tileWidth + gap),
       top: margin
     }))
-  ).resize({ width: 1600, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer();
-  return await utils_default.zipImage(toDataUrl(merged), 2 * 1024 * 1024);
+  ).jpeg({ quality: 88 }).toBuffer();
+  const resizedMerged = await (0, import_sharp3.default)(merged).resize({ width: 1600, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer();
+  return await utils_default.zipImage(toDataUrl(resizedMerged), 2 * 1024 * 1024);
 }
 async function buildToolMontage(images) {
   const tileSize = images.length === 1 ? 960 : 520;
@@ -241829,24 +241830,61 @@ var init_batchGeneratePrompt = __esm({
               )},
           `;
               try {
-                const { text: text2 } = await utils_default.Ai.Text("universalAi").invoke({
-                  system: videoPromptGeneration,
-                  messages: [
-                    {
-                      role: "assistant",
-                      content: `${visualManual}`
-                    },
-                    {
-                      role: "user",
-                      content
-                    }
-                  ]
-                });
+                const buildLocalFallbackPrompt = () => {
+                  const compactStoryboard = storyboard.map((item, index) => `\u5206\u955C${index + 1}\uFF1A${String(item.videoDesc ?? "").replace(/\s+/g, " ").trim()}`).filter(Boolean).join("\uFF1B");
+                  const styleSummaryMatch = String(visualManual ?? "").match(/古风写实摄影[^|\n]{0,80}/);
+                  const styleSummary = styleSummaryMatch?.[0]?.trim() || "\u53E4\u98CE\u5199\u5B9E\u6444\u5F71\uFF0C\u7535\u5F71\u98CE\u683C\uFF0C\u5F3A\u5BF9\u6BD4\u5EA6\uFF0C\u6781\u81F4\u7EC6\u8282\u3002";
+                  return [
+                    styleSummary,
+                    `\u89C6\u9891\u6A21\u578B\uFF1A${modelData}\u3002`,
+                    "\u8BF7\u5C06\u4EE5\u4E0B\u5185\u5BB9\u6574\u5408\u4E3A\u4E00\u6BB5\u53EF\u76F4\u63A5\u7528\u4E8E\u89C6\u9891\u751F\u6210\u7684\u8FDE\u7EED\u955C\u5934\u63D0\u793A\u8BCD\uFF1A",
+                    compactStoryboard
+                  ].join(" ");
+                };
+                const buildValidPrompt = async (systemPrompt, userContent) => {
+                  const { text: text2 } = await utils_default.Ai.Text("universalAi").invoke({
+                    system: systemPrompt,
+                    messages: [
+                      {
+                        role: "assistant",
+                        content: `${visualManual}`
+                      },
+                      {
+                        role: "user",
+                        content: userContent
+                      }
+                    ]
+                  });
+                  const normalizedText2 = (text2 ?? "").trim();
+                  const invalidPrompt = !normalizedText2 || normalizedText2.includes("video_placeholder") || normalizedText2.includes("\u5347\u7EA7\u8BA2\u9605") || normalizedText2.includes("\u6211\u5F88\u4E50\u610F\u63D0\u4F9B\u5E2E\u52A9");
+                  if (invalidPrompt) {
+                    throw new Error("\u89C6\u9891\u63D0\u793A\u8BCD\u751F\u6210\u8FD4\u56DE\u65E0\u6548\u5360\u4F4D\u5185\u5BB9");
+                  }
+                  return normalizedText2;
+                };
+                let normalizedText = "";
+                try {
+                  normalizedText = await buildValidPrompt(videoPromptGeneration ?? "", content);
+                } catch {
+                  try {
+                    const fallbackSystem = [
+                      "\u4F60\u662F\u89C6\u9891\u63D0\u793A\u8BCD\u751F\u6210\u5668\u3002",
+                      "\u53EA\u8F93\u51FA\u6700\u7EC8\u89C6\u9891\u63D0\u793A\u8BCD\uFF0C\u4E0D\u8981\u89E3\u91CA\uFF0C\u4E0D\u8981\u5206\u9694\u7EBF\uFF0C\u4E0D\u8981 markdown \u4EE3\u7801\u5757\u3002",
+                      "\u7981\u6B62\u8F93\u51FA video_placeholder\u3001\u8BA2\u9605\u5347\u7EA7\u63D0\u793A\u3001\u5BD2\u6684\u6216\u62D2\u7B54\u8BDD\u672F\u3002",
+                      `\u89C6\u9891\u6A21\u578B\uFF1A${modelData}\u3002\u751F\u6210\u5185\u5BB9\u5FC5\u987B\u9002\u914D\u5F53\u524D\u6A21\u578B\u3002`
+                    ].join("\n");
+                    const fallbackContent = [`\u6A21\u5F0F\uFF1A${mode ?? ""}`, "\u8BF7\u57FA\u4E8E\u4EE5\u4E0B\u7D20\u6750\u6574\u5408\u51FA\u4E00\u6BB5\u53EF\u76F4\u63A5\u7528\u4E8E\u89C6\u9891\u751F\u6210\u7684\u89C6\u9891\u63D0\u793A\u8BCD\uFF1A", content].join("\n\n");
+                    normalizedText = await buildValidPrompt(fallbackSystem, fallbackContent);
+                  } catch {
+                    normalizedText = buildLocalFallbackPrompt();
+                  }
+                }
                 await utils_default.db("o_videoTrack").where({ id: track.trackId }).update({
-                  prompt: text2,
-                  state: "\u5DF2\u5B8C\u6210"
+                  prompt: normalizedText,
+                  state: "\u5DF2\u5B8C\u6210",
+                  reason: null
                 });
-                return { trackId: track.trackId, text: text2 };
+                return { trackId: track.trackId, text: normalizedText };
               } catch (e) {
                 await utils_default.db("o_videoTrack").where({ id: track.trackId }).update({ state: "\u751F\u6210\u5931\u8D25", reason: utils_default.error(e).message });
               }
@@ -241923,6 +241961,14 @@ var init_batchGenerateVideo = __esm({
                 }
               })
             );
+            const missingReferences = images.map((item, index) => ({ item, upload: uploadData[index] })).filter(({ item }) => !item?.path).map(({ upload }) => ({ id: upload.id, sources: upload.sources }));
+            if (missingReferences.length > 0) {
+              await utils_default.db("o_videoTrack").where("id", trackId).update({
+                state: "\u751F\u6210\u5931\u8D25",
+                reason: `\u5B58\u5728\u672A\u751F\u6210\u6210\u529F\u7684\u53C2\u8003\u56FE\uFF0C\u8BF7\u5148\u8865\u751F\u6210\u5206\u955C\u56FE\u540E\u518D\u751F\u6210\u89C6\u9891\uFF1A${missingReferences.map((item) => `${item.sources}:${item.id}`).join(", ")}`
+              });
+              return { trackId, videoId: null, skip: true, missingReferences, prompt, duration: duration4, images: [], videoPath: "" };
+            }
             const videoPath = `/${projectId}/video/${v4_default()}.mp4`;
             const [videoId] = await utils_default.db("o_video").insert({
               filePath: videoPath,
@@ -241932,9 +241978,17 @@ var init_batchGenerateVideo = __esm({
               projectId,
               videoTrackId: trackId
             });
-            return { videoId, videoPath, prompt, duration: duration4, images, trackId };
+            return { videoId, videoPath, prompt, duration: duration4, images, trackId, skip: false, missingReferences: [] };
           })
         );
+        const invalidTasks = tasks.filter((t) => t.skip);
+        if (invalidTasks.length > 0) {
+          return res.status(400).send(
+            error50("\u5B58\u5728\u672A\u751F\u6210\u6210\u529F\u7684\u53C2\u8003\u56FE\uFF0C\u8BF7\u5148\u8865\u751F\u6210\u5206\u955C\u56FE\u540E\u518D\u751F\u6210\u89C6\u9891", {
+              invalidTracks: invalidTasks.map((t) => ({ trackId: t.trackId, missingReferences: t.missingReferences }))
+            })
+          );
+        }
         res.status(200).send(success3(tasks.map((t) => ({ videoId: t.videoId, trackId: t.trackId }))));
         for (const { videoId, videoPath, prompt, duration: duration4, images } of tasks) {
           const base644 = await Promise.all(
@@ -242147,6 +242201,19 @@ var init_generateVideo = __esm({
             }
           })
         );
+        const missingReferences = images.map((item, index) => ({ item, upload: uploadData[index] })).filter(({ item }) => !item?.path).map(({ upload }) => ({ id: upload.id, sources: upload.sources }));
+        if (missingReferences.length > 0) {
+          await utils_default.db("o_videoTrack").where("id", trackId).update({
+            state: "\u751F\u6210\u5931\u8D25",
+            reason: `\u5B58\u5728\u672A\u751F\u6210\u6210\u529F\u7684\u53C2\u8003\u56FE\uFF0C\u8BF7\u5148\u8865\u751F\u6210\u5206\u955C\u56FE\u540E\u518D\u751F\u6210\u89C6\u9891\uFF1A${missingReferences.map((item) => `${item.sources}:${item.id}`).join(", ")}`
+          });
+          return res.status(400).send(
+            error50(
+              `\u5B58\u5728\u672A\u751F\u6210\u6210\u529F\u7684\u53C2\u8003\u56FE\uFF0C\u8BF7\u5148\u8865\u751F\u6210\u5206\u955C\u56FE\u540E\u518D\u751F\u6210\u89C6\u9891\uFF1A${missingReferences.map((item) => `${item.sources}:${item.id}`).join(", ")}`,
+              { trackId, missingReferences }
+            )
+          );
+        }
         const base644 = await Promise.all(
           images.map(async (item) => {
             if (!item) return null;
@@ -242335,24 +242402,61 @@ var init_generateVideoPrompt = __esm({
         )},
           `;
         try {
-          const { text: text2 } = await utils_default.Ai.Text("universalAi").invoke({
-            system: videoPromptGeneration,
-            messages: [
-              {
-                role: "assistant",
-                content: `${visualManual}`
-              },
-              {
-                role: "user",
-                content
-              }
-            ]
-          });
+          const buildLocalFallbackPrompt = () => {
+            const compactStoryboard = storyboard.map((item, index) => `\u5206\u955C${index + 1}\uFF1A${String(item.videoDesc ?? "").replace(/\s+/g, " ").trim()}`).filter(Boolean).join("\uFF1B");
+            const styleSummaryMatch = String(visualManual ?? "").match(/古风写实摄影[^|\n]{0,80}/);
+            const styleSummary = styleSummaryMatch?.[0]?.trim() || "\u53E4\u98CE\u5199\u5B9E\u6444\u5F71\uFF0C\u7535\u5F71\u98CE\u683C\uFF0C\u5F3A\u5BF9\u6BD4\u5EA6\uFF0C\u6781\u81F4\u7EC6\u8282\u3002";
+            return [
+              styleSummary,
+              `\u89C6\u9891\u6A21\u578B\uFF1A${modelData}\u3002`,
+              "\u8BF7\u5C06\u4EE5\u4E0B\u5185\u5BB9\u6574\u5408\u4E3A\u4E00\u6BB5\u53EF\u76F4\u63A5\u7528\u4E8E\u89C6\u9891\u751F\u6210\u7684\u8FDE\u7EED\u955C\u5934\u63D0\u793A\u8BCD\uFF1A",
+              compactStoryboard
+            ].join(" ");
+          };
+          const buildValidPrompt = async (systemPrompt, userContent) => {
+            const { text: text2 } = await utils_default.Ai.Text("universalAi").invoke({
+              system: systemPrompt,
+              messages: [
+                {
+                  role: "assistant",
+                  content: `${visualManual}`
+                },
+                {
+                  role: "user",
+                  content: userContent
+                }
+              ]
+            });
+            const normalizedText2 = (text2 ?? "").trim();
+            const invalidPrompt = !normalizedText2 || normalizedText2.includes("video_placeholder") || normalizedText2.includes("\u5347\u7EA7\u8BA2\u9605") || normalizedText2.includes("\u6211\u5F88\u4E50\u610F\u63D0\u4F9B\u5E2E\u52A9");
+            if (invalidPrompt) {
+              throw new Error("\u89C6\u9891\u63D0\u793A\u8BCD\u751F\u6210\u8FD4\u56DE\u65E0\u6548\u5360\u4F4D\u5185\u5BB9");
+            }
+            return normalizedText2;
+          };
+          let normalizedText = "";
+          try {
+            normalizedText = await buildValidPrompt(videoPromptGeneration ?? "", content);
+          } catch {
+            try {
+              const fallbackSystem = [
+                "\u4F60\u662F\u89C6\u9891\u63D0\u793A\u8BCD\u751F\u6210\u5668\u3002",
+                "\u53EA\u8F93\u51FA\u6700\u7EC8\u89C6\u9891\u63D0\u793A\u8BCD\uFF0C\u4E0D\u8981\u89E3\u91CA\uFF0C\u4E0D\u8981\u5206\u9694\u7EBF\uFF0C\u4E0D\u8981 markdown \u4EE3\u7801\u5757\u3002",
+                "\u7981\u6B62\u8F93\u51FA video_placeholder\u3001\u8BA2\u9605\u5347\u7EA7\u63D0\u793A\u3001\u5BD2\u6684\u6216\u62D2\u7B54\u8BDD\u672F\u3002",
+                `\u89C6\u9891\u6A21\u578B\uFF1A${modelData}\u3002\u751F\u6210\u5185\u5BB9\u5FC5\u987B\u9002\u914D\u5F53\u524D\u6A21\u578B\u3002`
+              ].join("\n");
+              const fallbackContent = [`\u6A21\u5F0F\uFF1A${mode ?? ""}`, "\u8BF7\u57FA\u4E8E\u4EE5\u4E0B\u7D20\u6750\u6574\u5408\u51FA\u4E00\u6BB5\u53EF\u76F4\u63A5\u7528\u4E8E\u89C6\u9891\u751F\u6210\u7684\u89C6\u9891\u63D0\u793A\u8BCD\uFF1A", content].join("\n\n");
+              normalizedText = await buildValidPrompt(fallbackSystem, fallbackContent);
+            } catch {
+              normalizedText = buildLocalFallbackPrompt();
+            }
+          }
           await utils_default.db("o_videoTrack").where({ id: trackId }).update({
             state: "\u5DF2\u5B8C\u6210",
-            prompt: text2
+            prompt: normalizedText,
+            reason: null
           });
-          res.status(200).send(success3(text2));
+          res.status(200).send(success3(normalizedText));
         } catch (e) {
           await utils_default.db("o_videoTrack").where({ id: trackId }).update({
             state: "\u751F\u6210\u5931\u8D25",
